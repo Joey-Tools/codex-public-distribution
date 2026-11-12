@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 from scripts.publish_distribution import (
     EXPECTED_REPO,
     EXPECTED_REPO_ID,
+    GitHubHTTPError,
     PublishError,
     main,
     publish,
@@ -40,12 +41,23 @@ class FakeTransport:
         immutable: bool = True,
         fail_method: str | None = None,
         malformed: bool = False,
+        tag_http_status: int | None = None,
+        mutate_tag_after_upload: int | None = None,
+        tag_error: bool = False,
+        tag_kind: str = "commit",
+        tag_object_http_status: int | None = None,
     ) -> None:
         self.release = existing
         self.tag_sha = tag_sha
         self.immutable_on_publish = immutable
         self.fail_method = fail_method
         self.malformed = malformed
+        self.tag_http_status = tag_http_status
+        self.mutate_tag_after_upload = mutate_tag_after_upload
+        self.tag_error = tag_error
+        self.tag_kind = tag_kind
+        self.tag_object_http_status = tag_object_http_status
+        self.upload_count = 0
         self.calls: list[tuple[str, str, dict | None, bytes | None]] = []
         self.next_id = 99
         self.tag_exists = bool(existing and existing.get("draft") is False)
@@ -82,9 +94,21 @@ class FakeTransport:
             self.release = self._release(tag, draft=True)
             return self.release
         if path.startswith(f"/repos/{EXPECTED_REPO}/git/ref/tags/") and method == "GET":
+            if self.tag_error:
+                raise PublishError("injected tag transport error")
+            if self.tag_http_status is not None:
+                raise GitHubHTTPError(
+                    self.tag_http_status, "injected tag lookup failure"
+                )
             if not self.tag_exists:
-                raise PublishError("tag ref does not exist before draft publication")
+                raise GitHubHTTPError(404, "tag ref is absent")
             tag = path.rsplit("/", 1)[1]
+            return {"object": {"type": self.tag_kind, "sha": self.tag_sha}}
+        if path.startswith(f"/repos/{EXPECTED_REPO}/git/tags/") and method == "GET":
+            if self.tag_object_http_status is not None:
+                raise GitHubHTTPError(
+                    self.tag_object_http_status, "injected annotated tag lookup failure"
+                )
             return {"object": {"type": "commit", "sha": self.tag_sha}}
         if path.startswith(f"/repos/{EXPECTED_REPO}/releases/"):
             if path.endswith("/assets") and method == "POST":
@@ -123,6 +147,9 @@ class FakeTransport:
                 "digest": f"sha256:{hashlib.sha256(body).hexdigest()}",
             }
         )
+        self.upload_count += 1
+        if self.mutate_tag_after_upload == self.upload_count:
+            self.tag_sha = OTHER_SHA
 
 
 class PublishDistributionTests(unittest.TestCase):
@@ -169,7 +196,9 @@ class PublishDistributionTests(unittest.TestCase):
             i for i, call in enumerate(transport.calls) if "/git/ref/tags/" in call[1]
         ]
         self.assertTrue(tag_read_indices)
-        self.assertTrue(all(index > patch_index for index in tag_read_indices))
+        self.assertEqual(len(tag_read_indices), 3)
+        self.assertTrue(all(index < patch_index for index in tag_read_indices[:2]))
+        self.assertGreater(tag_read_indices[-1], patch_index)
         self.assertEqual(
             transport.calls[patch_index][2],
             {
@@ -216,6 +245,56 @@ class PublishDistributionTests(unittest.TestCase):
         transport = FakeTransport(existing=release, tag_sha=OTHER_SHA)
         with self.assertRaisesRegex(PublishError, "exact requested source SHA"):
             publish(transport, self.directory, SHA)
+
+    def test_existing_wrong_tag_rejects_draft_before_asset_upload(self) -> None:
+        tag = "personal-codex-20261112-113005-aaaaaaa"
+        transport = FakeTransport(tag_sha=OTHER_SHA)
+        transport.release = transport._release(tag, draft=True)
+        transport.tag_exists = True
+        with self.assertRaisesRegex(PublishError, "existing release tag"):
+            publish(transport, self.directory, SHA)
+        self.assertFalse(any("/assets?" in call[1] for call in transport.calls))
+        self.assertFalse(any(call[0] == "PATCH" for call in transport.calls))
+
+    def test_tag_absence_is_accepted_only_as_exact_ref_http_404(self) -> None:
+        # New and resumed drafts use this path; only the exact ref GET can classify absence.
+        result = publish(FakeTransport(), self.directory, SHA)
+        self.assertEqual(result["status"], "published")
+
+    def test_tag_http_forbidden_and_server_errors_fail_before_publication(self) -> None:
+        for status in (403, 500):
+            with self.subTest(status=status):
+                transport = FakeTransport(tag_http_status=status)
+                with self.assertRaises(GitHubHTTPError) as caught:
+                    publish(transport, self.directory, SHA)
+                self.assertEqual(caught.exception.status_code, status)
+                self.assertFalse(any(call[0] == "PATCH" for call in transport.calls))
+
+    def test_tag_transport_and_missing_annotated_object_fail_closed(self) -> None:
+        transport_error = FakeTransport(tag_error=True)
+        with self.assertRaisesRegex(PublishError, "tag transport error"):
+            publish(transport_error, self.directory, SHA)
+        self.assertFalse(any(call[0] == "PATCH" for call in transport_error.calls))
+
+        missing_object = FakeTransport(tag_kind="tag", tag_object_http_status=404)
+        missing_object.release = missing_object._release(
+            "personal-codex-20261112-113005-aaaaaaa", draft=True
+        )
+        missing_object.tag_exists = True
+        with self.assertRaises(GitHubHTTPError) as caught:
+            publish(missing_object, self.directory, SHA)
+        self.assertEqual(caught.exception.status_code, 404)
+        self.assertFalse(any(call[0] == "PATCH" for call in missing_object.calls))
+
+    def test_tag_binding_mutation_during_uploads_fails_final_recheck(self) -> None:
+        tag = "personal-codex-20261112-113005-aaaaaaa"
+        transport = FakeTransport(mutate_tag_after_upload=1)
+        transport.release = transport._release(tag, draft=True)
+        transport.tag_exists = True
+        with self.assertRaisesRegex(PublishError, "existing release tag"):
+            publish(transport, self.directory, SHA)
+        self.assertEqual(transport.upload_count, 2)
+        self.assertFalse(any(call[0] == "PATCH" for call in transport.calls))
 
     def test_partial_matching_draft_resumes_only_missing_asset(self) -> None:
         tag = "personal-codex-20261112-113005-aaaaaaa"

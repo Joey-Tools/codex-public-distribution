@@ -33,6 +33,14 @@ class PublishError(RuntimeError):
     """A validation or remote-state error that must stop publication."""
 
 
+class GitHubHTTPError(PublishError):
+    """An explicit HTTP error response from GitHub's API."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class LocalBundle:
     package: Path
@@ -94,10 +102,10 @@ class GitHubTransport:
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                     raise PublishError("GitHub API returned malformed JSON") from exc
         except urllib.error.HTTPError as exc:
-            # A response (including 404) is evidence only when its status is explicit.
             detail = exc.read(4096).decode("utf-8", errors="replace")
-            raise PublishError(
-                f"GitHub API {method} failed with HTTP {exc.code}: {detail[:500]}"
+            raise GitHubHTTPError(
+                exc.code,
+                f"GitHub API {method} failed with HTTP {exc.code}: {detail[:500]}",
             ) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise PublishError(
@@ -212,14 +220,17 @@ def _repo_preflight(transport: Any, sha: str) -> None:
         raise PublishError("requested SHA is not the current master commit")
 
 
-def _resolve_tag_commit(transport: Any, tag: str) -> str:
+def _get_tag_ref(transport: Any, tag: str) -> Mapping[str, Any]:
     encoded = urllib.parse.quote(tag, safe="")
-    ref = _expect_object(
+    return _expect_object(
         transport.request(
             "GET", _api(f"/repos/{EXPECTED_REPO}/git/ref/tags/{encoded}")
         ),
         "tag ref",
     )
+
+
+def _tag_ref_commit(transport: Any, ref: Mapping[str, Any]) -> str:
     obj = _expect_object(ref.get("object"), "tag object")
     kind, oid = obj.get("type"), obj.get("sha")
     if not isinstance(oid, str) or not SHA_RE.fullmatch(oid.lower()):
@@ -236,6 +247,28 @@ def _resolve_tag_commit(transport: Any, tag: str) -> str:
     if target.get("type") != "commit" or not isinstance(target.get("sha"), str):
         raise PublishError("annotated release tag does not directly target a commit")
     return target["sha"].lower()
+
+
+def _resolve_tag_commit(transport: Any, tag: str) -> str:
+    return _tag_ref_commit(transport, _get_tag_ref(transport, tag))
+
+
+def _check_existing_tag_binding(
+    transport: Any, tag: str, expected_sha: str
+) -> str | None:
+    """Return None for a conclusively absent ref; reject every other invalid state."""
+    try:
+        ref = _get_tag_ref(transport, tag)
+    except GitHubHTTPError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+    target_sha = _tag_ref_commit(transport, ref)
+    if target_sha != expected_sha:
+        raise PublishError(
+            "existing release tag does not resolve to the exact requested SHA"
+        )
+    return target_sha
 
 
 def _assets(transport: Any, release: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -373,6 +406,11 @@ def publish(
                 "created draft target_commitish does not match the exact requested SHA"
             )
 
+    tag = release.get("tag_name")
+    if not isinstance(tag, str):
+        raise PublishError("draft release has no tag")
+    initial_tag_binding = _check_existing_tag_binding(transport, tag, sha)
+
     assets = _assets(transport, release)
     allowed = {bundle.package_name, bundle.checksum_name}
     if set(assets) - allowed:
@@ -426,6 +464,11 @@ def publish(
     ):
         raise PublishError(
             "draft state, tag, or target_commitish changed before publication"
+        )
+    final_tag_binding = _check_existing_tag_binding(transport, tag, sha)
+    if final_tag_binding != initial_tag_binding:
+        raise PublishError(
+            "release tag binding changed while draft assets were uploaded"
         )
     transport.request(
         "PATCH",
