@@ -1,0 +1,116 @@
+name: Update public sources
+
+on:
+  schedule:
+    - cron: '47 */8 * * *'
+  workflow_dispatch:
+    inputs:
+      notify_private:
+        description: 'Only test the configured private wakeup; do not refresh sources.'
+        type: boolean
+        default: false
+  workflow_run:
+    workflows: [Distribution]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-source-updates
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  update:
+    if: github.repository == 'Joey-Tools/codex-public-distribution' && github.ref == 'refs/heads/master' && !(github.event_name == 'workflow_dispatch' && inputs.notify_private)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check public writer configuration
+        id: configuration
+        env:
+          APP_CLIENT_ID: ${{ vars.DISTRIBUTION_BOT_APP_CLIENT_ID }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Source updates are not configured; this run did not inspect or update sources.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.configuration.outputs.enabled == 'true'
+        with:
+          ref: refs/heads/master
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        if: steps.configuration.outputs.enabled == 'true'
+        with:
+          python-version: '3.13'
+      - name: Create a token for the public source writer
+        if: steps.configuration.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@v3
+        id: writer-token
+        with:
+          app-id: ${{ vars.DISTRIBUTION_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DISTRIBUTION_BOT_APP_PRIVATE_KEY }}
+          owner: Joey-Tools
+          repositories: codex-public-distribution
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: read
+          permission-checks: read
+          permission-statuses: read
+      - name: Refresh source pins only after exact native CI succeeds
+        if: steps.configuration.outputs.enabled == 'true' && github.event_name != 'workflow_run'
+        id: refresh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -B scripts/refresh_sources.py --repo-root . --github-output "$GITHUB_OUTPUT"
+      - name: Open the source-only update PR
+        if: steps.refresh.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.writer-token.outputs.token }}
+          APP_SLUG: ${{ steps.writer-token.outputs.app-slug }}
+          GH_HOST: github.com
+          GH_PROMPT_DISABLED: '1'
+        run: python -B scripts/source_update_bot.py open --repo-root . --app-slug "$APP_SLUG"
+      - name: Merge only the exact source PR with complete native CI
+        if: steps.configuration.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.writer-token.outputs.token }}
+          APP_SLUG: ${{ steps.writer-token.outputs.app-slug }}
+          GH_HOST: github.com
+          GH_PROMPT_DISABLED: '1'
+        run: python -B scripts/source_update_bot.py merge-ready --repo-root . --app-slug "$APP_SLUG"
+
+  notify-private:
+    if: github.repository == 'Joey-Tools/codex-public-distribution' && github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' && inputs.notify_private
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Require an explicitly enabled private consumer
+        env:
+          CONSUMER_READY: ${{ vars.PRIVATE_OVERLAY_DISTRIBUTION_READY }}
+          APP_CLIENT_ID: ${{ vars.DISTRIBUTION_NOTIFY_APP_CLIENT_ID }}
+        run: test "$CONSUMER_READY" = true && test -n "$APP_CLIENT_ID"
+      - name: Create a private Actions notification token
+        uses: actions/create-github-app-token@v3
+        id: private-token
+        with:
+          app-id: ${{ vars.DISTRIBUTION_NOTIFY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DISTRIBUTION_NOTIFY_APP_PRIVATE_KEY }}
+          owner: Joey-Tools
+          repositories: codex-private-workflows
+          permission-actions: write
+      - name: Wake private adoption without pinning an out-of-order event tag
+        env:
+          GH_TOKEN: ${{ steps.private-token.outputs.token }}
+          GH_HOST: github.com
+          GH_PROMPT_DISABLED: '1'
+        run: >-
+          gh workflow run scheduled-sync-release.yml
+          --repo Joey-Tools/codex-private-workflows --ref master -f force=true
