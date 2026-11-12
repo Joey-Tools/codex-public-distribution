@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "sources": {
+    "codex-toolbox": {
+      "repository": "Joey-Tools/codex-toolbox",
+      "repository_id": 1242511840,
+      "ref": "master",
+      "workflow_id": 278865655,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_blob": "70cf2e2b45492de7a4e72d9a47ee255f35956eee",
+      "required_jobs": [
+        "platform-safety (macos-latest)",
+        "platform-safety (ubuntu-latest)",
+        "python-39-compatibility",
+        "test"
+      ],
+      "allowed_skipped_jobs": [],
+      "required_steps": {
+        "test": ["Run tests"]
+      }
+    },
+    "archify": {
+      "repository": "Joey-Tools/archify",
+      "repository_id": 1361913432,
+      "ref": "joey-custom",
+      "workflow_id": 353557026,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_blob": "e15448f50228cf00fa79fdeef2526e211403fa09",
+      "required_jobs": [
+        "test (18)",
+        "test (20)",
+        "test (22)",
+        "test (24)",
+        "webm-artifact",
+        "zip-freshness",
+        "published-update-manifest",
+        "package smoke (ubuntu-latest)",
+        "package smoke (macos-latest)",
+        "package smoke (windows-latest)"
+      ],
+      "allowed_skipped_jobs": [
+        "deploy-pages"
+      ]
+    },
+    "codex-review-workflows": {
+      "repository": "Joey-Tools/codex-review-workflows",
+      "repository_id": 1242511842,
+      "ref": "master",
+      "workflow_id": 278891931,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_blob": "f47a59ccc6eb10ef9722f27baf3ab1a2b72790e1",
+      "required_jobs": [
+        "broker-reproducibility (macos-26)",
+        "independent-supervisor (python-3.13)",
+        "platform-tests (macos-latest)",
+        "platform-tests (ubuntu-latest)",
+        "test"
+      ],
+      "allowed_skipped_jobs": []
+    },
+    "codex-workflow-hygiene": {
+      "repository": "Joey-Tools/codex-workflow-hygiene",
+      "repository_id": 1242512084,
+      "ref": "master",
+      "workflow_id": 278892036,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_blob": "0883ee1481705ca14e1b68a65ce25a5f2ab38d75",
+      "required_jobs": [
+        "python-310",
+        "test"
+      ],
+      "allowed_skipped_jobs": []
+    },
+    "codex-project-journal": {
+      "repository": "Joey-Tools/codex-project-journal",
+      "repository_id": 1242511845,
+      "ref": "master",
+      "workflow_id": 278865579,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_blob": "95a3028439621527486d969d734ac88afa9847c3",
+      "required_jobs": [
+        "test"
+      ],
+      "allowed_skipped_jobs": []
+    },
+    "codex-debug-triage": {
+      "repository": "Joey-Tools/codex-debug-triage",
+      "repository_id": 1242512092,
+      "ref": "master",
+      "workflow_id": 278891924,
+      "workflow_path": ".github/workflows/ci.yml",
+      "workflow_blob": "a49556db830fc8a1c94304de51b21164dada7cf6",
+      "required_jobs": [
+        "test",
+        "test (3.9)",
+        "test (3.x)"
+      ],
+      "allowed_skipped_jobs": []
+    }
+  }
+}

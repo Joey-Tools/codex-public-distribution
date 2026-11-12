@@ -1,0 +1,181 @@
+name: Distribution
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  build:
+    name: Build and validate public package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Test aggregation and publication behavior
+        run: python -B -m unittest discover -s tests -v
+      - name: Verify native source CI at each exact revision
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -B scripts/source_ci.py --output source-ci-evidence.json
+      - name: Read source pins
+        id: sources
+        run: python -B scripts/source_pins.py >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: Joey-Tools/codex-toolbox
+          ref: ${{ fromJSON(steps.sources.outputs.pins)['codex-toolbox'] }}
+          path: .sources/codex-toolbox
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: Joey-Tools/archify
+          ref: ${{ fromJSON(steps.sources.outputs.pins)['archify'] }}
+          path: .sources/archify
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: Joey-Tools/codex-review-workflows
+          ref: ${{ fromJSON(steps.sources.outputs.pins)['codex-review-workflows'] }}
+          path: .sources/codex-review-workflows
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: Joey-Tools/codex-workflow-hygiene
+          ref: ${{ fromJSON(steps.sources.outputs.pins)['codex-workflow-hygiene'] }}
+          path: .sources/codex-workflow-hygiene
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: Joey-Tools/codex-project-journal
+          ref: ${{ fromJSON(steps.sources.outputs.pins)['codex-project-journal'] }}
+          path: .sources/codex-project-journal
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: Joey-Tools/codex-debug-triage
+          ref: ${{ fromJSON(steps.sources.outputs.pins)['codex-debug-triage'] }}
+          path: .sources/codex-debug-triage
+          persist-credentials: false
+      - name: Build the locked public distribution
+        run: python -B scripts/distribution.py --sources-root .sources --output-dir dist --sha "$GITHUB_SHA"
+      - name: Build the existing Toolbox public baseline
+        env:
+          TOOLBOX_SHA: ${{ fromJSON(steps.sources.outputs.pins)['codex-toolbox'] }}
+        run: >-
+          python -B .sources/codex-toolbox/scripts/build_personal_codex_package.py
+          --repo-root .sources/codex-toolbox --manifest personal_codex/public-sync-manifest.json
+          --output-dir baseline-dist --sha "$TOOLBOX_SHA" --require-clean-sources
+      - name: Install, upgrade from Toolbox, and check public uninstall refusal
+        env:
+          TOOLBOX_SHA: ${{ fromJSON(steps.sources.outputs.pins)['codex-toolbox'] }}
+        run: >-
+          python -B scripts/package_smoke.py --dist dist --sha "$GITHUB_SHA"
+          --previous-dist baseline-dist --previous-sha "$TOOLBOX_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-distribution-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toolbox-baseline-${{ github.sha }}
+          path: baseline-dist/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-ci-evidence-${{ github.sha }}
+          path: source-ci-evidence.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  macos-install:
+    name: macOS package integration
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-distribution-${{ github.sha }}
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: toolbox-baseline-${{ github.sha }}
+          path: baseline-dist
+      - name: Read source pins
+        id: sources
+        run: python -B scripts/source_pins.py >> "$GITHUB_OUTPUT"
+      - name: Install, upgrade from Toolbox, and check public uninstall refusal
+        env:
+          TOOLBOX_SHA: ${{ fromJSON(steps.sources.outputs.pins)['codex-toolbox'] }}
+        run: >-
+          python -B scripts/package_smoke.py --dist dist --sha "$GITHUB_SHA"
+          --previous-dist baseline-dist --previous-sha "$TOOLBOX_SHA"
+
+  ci:
+    name: Distribution CI
+    if: always()
+    needs: [build, macos-install]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require package validation on both platforms
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          MACOS_RESULT: ${{ needs.macos-install.result }}
+        run: test "$BUILD_RESULT" = success && test "$MACOS_RESULT" = success
+
+  publish:
+    name: Publish immutable distribution
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-distribution-${{ github.sha }}
+          path: dist
+      - name: Publish the validated package
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -B scripts/publish_distribution.py --dist dist --sha "$GITHUB_SHA"

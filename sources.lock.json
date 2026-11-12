@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "name": "codex-toolbox",
+      "repository": "Joey-Tools/codex-toolbox",
+      "repository_id": 1242511840,
+      "ref": "master",
+      "sha": "7238fcb9cea0cdd1383df471ca1c65cfba45fed2",
+      "tree": "2a7da0b303cbf6bc10199d0781a07b7910dd3b4f",
+      "workflow": {
+        "id": 278865655,
+        "path": ".github/workflows/ci.yml",
+        "blob": "70cf2e2b45492de7a4e72d9a47ee255f35956eee"
+      }
+    },
+    {
+      "name": "archify",
+      "repository": "Joey-Tools/archify",
+      "repository_id": 1361913432,
+      "ref": "joey-custom",
+      "sha": "52d64928314032ed840485ced531fce54bdfbb1e",
+      "tree": "9b7f7bf81b5ce7b660656cc1f9b489ab4eb13a61",
+      "workflow": {
+        "id": 353557026,
+        "path": ".github/workflows/ci.yml",
+        "blob": "e15448f50228cf00fa79fdeef2526e211403fa09"
+      }
+    },
+    {
+      "name": "codex-review-workflows",
+      "repository": "Joey-Tools/codex-review-workflows",
+      "repository_id": 1242511842,
+      "ref": "master",
+      "sha": "41ec7df655da5c97cbd8884ce4aaa5cc8fd48fbf",
+      "tree": "fa35e3b137b30347e5405aaf4e2e138d13d03587",
+      "workflow": {
+        "id": 278891931,
+        "path": ".github/workflows/ci.yml",
+        "blob": "f47a59ccc6eb10ef9722f27baf3ab1a2b72790e1"
+      }
+    },
+    {
+      "name": "codex-workflow-hygiene",
+      "repository": "Joey-Tools/codex-workflow-hygiene",
+      "repository_id": 1242512084,
+      "ref": "master",
+      "sha": "f0b05384452c469709f39f5bb6f12d3f10a1ca70",
+      "tree": "b5069b0ee7181608fc97d05b90a0d375d2eb8522",
+      "workflow": {
+        "id": 278892036,
+        "path": ".github/workflows/ci.yml",
+        "blob": "0883ee1481705ca14e1b68a65ce25a5f2ab38d75"
+      }
+    },
+    {
+      "name": "codex-project-journal",
+      "repository": "Joey-Tools/codex-project-journal",
+      "repository_id": 1242511845,
+      "ref": "master",
+      "sha": "ecc60d0dd3ec110af46e03f0f7a6fafbafd071cc",
+      "tree": "b02ee6bf1d441c40635a3c209229cc8c23172e13",
+      "workflow": {
+        "id": 278865579,
+        "path": ".github/workflows/ci.yml",
+        "blob": "95a3028439621527486d969d734ac88afa9847c3"
+      }
+    },
+    {
+      "name": "codex-debug-triage",
+      "repository": "Joey-Tools/codex-debug-triage",
+      "repository_id": 1242512092,
+      "ref": "master",
+      "sha": "4a1c3178db4b4d49c3458e849d735b5b251e7d6e",
+      "tree": "d332bac7a382868b84778ec1c0ce2dd12d0764aa",
+      "workflow": {
+        "id": 278891924,
+        "path": ".github/workflows/ci.yml",
+        "blob": "a49556db830fc8a1c94304de51b21164dada7cf6"
+      }
+    }
+  ]
+}
