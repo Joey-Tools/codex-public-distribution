@@ -143,6 +143,23 @@ def jobs_for(run: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def status_record(
+    identity: int, context: str, state: str, created_at: str
+) -> dict[str, Any]:
+    return {
+        "url": f"https://api.github.com/repos/{REPOSITORY}/statuses/{HEAD_SHA}",
+        "avatar_url": "https://github.com/images/error/hubot_happy.gif",
+        "id": identity,
+        "node_id": f"MDY6U3RhdHVz{identity}==",
+        "state": state,
+        "description": f"{context} status {state}",
+        "target_url": "https://ci.example.invalid/status",
+        "context": context,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
 class FakeGitHub:
     """A deterministic fake for the allowlisted REST and GraphQL endpoints."""
 
@@ -158,6 +175,7 @@ class FakeGitHub:
         self.base_sha = BASE_SHA
         self.head_sha = HEAD_SHA
         self.branch = BRANCH
+        self.ref_prefix = "refs/heads/"
         self.lock_bytes = LOCK_BYTES
         self.prs: list[dict[str, Any]] = []
         self.branches: dict[str, dict[str, Any]] = {
@@ -293,7 +311,12 @@ class FakeGitHub:
             return {
                 "sha": HEAD_SHA,
                 "state": self.combined_state,
-                "total_count": len(self.status_rows),
+                "total_count": len(
+                    {
+                        str(status.get("context", "default")).casefold()
+                        for status in self.status_rows
+                    }
+                ),
             }
         raise AssertionError(f"unexpected API read: {path}")
 
@@ -303,6 +326,8 @@ class FakeGitHub:
         operation = "mutation" if mutation else "query"
         self.calls.append(("GRAPHQL", operation, (query, variables)))
         if "createRef" in query and mutation:
+            if "prefix" not in query:
+                raise AssertionError("createRef query must request the Ref prefix")
             self.mutations.append(("graphql", "createRef"))
             name = variables["input"]["name"]
             branch = name.removeprefix("refs/heads/")
@@ -315,7 +340,8 @@ class FakeGitHub:
                 "data": {
                     "createRef": {
                         "ref": {
-                            "name": name,
+                            "name": branch,
+                            "prefix": self.ref_prefix,
                             "target": {"oid": self.base_sha},
                         }
                     }
@@ -325,7 +351,9 @@ class FakeGitHub:
             self.mutations.append(("graphql", "createCommitOnBranch"))
             value = variables["input"]
             branch = value["branch"]["branchName"]
-            self.lock_bytes = value["fileChanges"]["additions"][0]["contents"].encode()
+            self.lock_bytes = base64.b64decode(
+                value["fileChanges"]["additions"][0]["contents"], validate=True
+            )
             digest = hashlib.sha256(self.lock_bytes).hexdigest()
             self.branches[branch] = self._branch_state(HEAD_SHA, self.base_sha, digest)
             if self.fail_mutation == "createCommitOnBranch":
@@ -378,12 +406,15 @@ class FakeGitHub:
                 }
             }
         if "repository(owner:" in query and "ref(qualifiedName:" in query:
+            if "prefix" not in query:
+                raise AssertionError("Ref query must request the namespace prefix")
             name = variables["qualifiedName"].removeprefix("refs/heads/")
             state = self.branches.get(name)
             ref = None
             if state is not None:
                 ref = {
-                    "name": f"refs/heads/{name}",
+                    "name": name,
+                    "prefix": self.ref_prefix,
                     "target": {
                         "oid": state["oid"],
                         "signature": state["signature"],
@@ -538,6 +569,10 @@ class SourceUpdateBotTests(unittest.TestCase):
         self.assertEqual(commit_call[2][1]["input"]["expectedHeadOid"], self.base_sha)
         additions = commit_call[2][1]["input"]["fileChanges"]["additions"]
         self.assertEqual([item["path"] for item in additions], [bot.LOCK_PATH])
+        self.assertEqual(
+            additions[0]["contents"], base64.b64encode(LOCK_BYTES).decode("ascii")
+        )
+        self.assertEqual(self.api.lock_bytes, LOCK_BYTES)
 
     def test_second_open_coalesces_without_mutating(self) -> None:
         first = bot.open_source_update(self.root, APP_SLUG, self.api)
@@ -677,6 +712,12 @@ class SourceUpdateBotTests(unittest.TestCase):
             new_master, None, ""
         )
         with self.assertRaisesRegex(bot.BotError, "public master changed"):
+            bot.open_source_update(self.root, APP_SLUG, self.api)
+        self.assertEqual(self.api.mutations, [])
+
+    def test_open_rejects_a_ref_with_the_wrong_namespace_prefix(self) -> None:
+        self.api.ref_prefix = "refs/tags/"
+        with self.assertRaisesRegex(bot.BotError, "Git reference name mismatch"):
             bot.open_source_update(self.root, APP_SLUG, self.api)
         self.assertEqual(self.api.mutations, [])
 
@@ -823,15 +864,81 @@ class SourceUpdateBotTests(unittest.TestCase):
 
         self._seed_merge_pr()
         self.api.status_rows = [
-            {
-                "id": 7,
-                "context": "external/required",
-                "state": "pending",
-                "sha": HEAD_SHA,
-                "created_at": "2026-11-12T10:00:00Z",
-                "updated_at": "2026-11-12T10:00:00Z",
-            }
+            status_record(
+                7,
+                "external/required",
+                "pending",
+                "2026-11-12T10:00:00Z",
+            )
         ]
+        with self.assertRaisesRegex(bot.NotReady, "commit_status_pending"):
+            bot.merge_ready_source_update(APP_SLUG, self.api)
+        self.assertEqual(self.api.mutations, [])
+
+    def test_successful_commit_status_uses_exact_sha_endpoint_without_sha_field(
+        self,
+    ) -> None:
+        self._seed_merge_pr()
+        self.api.status_rows = [
+            status_record(
+                8,
+                "external/required",
+                "success",
+                "2026-11-12T10:00:00Z",
+            )
+        ]
+        self.api.combined_state = "success"
+
+        result = bot.merge_ready_source_update(APP_SLUG, self.api)
+
+        self.assertEqual(result.status, "merged")
+        self.assertNotIn("sha", self.api.status_rows[0])
+        status_endpoint = f"/repos/{REPOSITORY}/commits/{HEAD_SHA}/statuses"
+        status_reads = [
+            call
+            for call in self.api.calls
+            if call[0] == "GET" and call[1] == status_endpoint
+        ]
+        self.assertEqual(len(status_reads), 2)
+
+    def test_latest_success_supersedes_older_statuses_for_same_context(self) -> None:
+        self._seed_merge_pr()
+        self.api.status_rows = [
+            status_record(10, "External/Required", "success", "2026-11-12T10:03:00Z"),
+            status_record(9, "external/required", "pending", "2026-11-12T10:02:00Z"),
+            status_record(8, "EXTERNAL/REQUIRED", "failure", "2026-11-12T10:01:00Z"),
+        ]
+        self.api.combined_state = "success"
+
+        result = bot.merge_ready_source_update(APP_SLUG, self.api)
+
+        self.assertEqual(result.status, "merged")
+
+    def test_latest_pending_or_failure_status_blocks_merge(self) -> None:
+        for state in ("pending", "failure"):
+            with self.subTest(state=state):
+                self._seed_merge_pr()
+                self.api.status_rows = [
+                    status_record(
+                        11, "external/required", state, "2026-11-12T10:03:00Z"
+                    ),
+                    status_record(
+                        10, "external/required", "success", "2026-11-12T10:02:00Z"
+                    ),
+                ]
+                self.api.combined_state = state
+                with self.assertRaisesRegex(bot.NotReady, "commit_status_pending"):
+                    bot.merge_ready_source_update(APP_SLUG, self.api)
+                self.assertEqual(self.api.mutations, [])
+
+    def test_failure_in_another_status_context_still_blocks_merge(self) -> None:
+        self._seed_merge_pr()
+        self.api.status_rows = [
+            status_record(12, "external/required", "success", "2026-11-12T10:03:00Z"),
+            status_record(11, "security/audit", "failure", "2026-11-12T10:02:00Z"),
+        ]
+        self.api.combined_state = "failure"
+
         with self.assertRaisesRegex(bot.NotReady, "commit_status_pending"):
             bot.merge_ready_source_update(APP_SLUG, self.api)
         self.assertEqual(self.api.mutations, [])

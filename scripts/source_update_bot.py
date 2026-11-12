@@ -412,6 +412,7 @@ query($owner: String!, $name: String!, $qualifiedName: String!) {
   repository(owner: $owner, name: $name) {
     ref(qualifiedName: $qualifiedName) {
       name
+      prefix
       target {
         oid
         ... on Commit {
@@ -441,13 +442,18 @@ def _ref(api: Any, branch: str) -> dict[str, Any] | None:
     if value is None:
         return None
     ref = _obj(value, "Git reference")
-    if ref.get("name") != f"refs/heads/{branch}":
+    if ref.get("name") != branch or ref.get("prefix") != "refs/heads/":
         raise BotError("Git reference name mismatch")
     target = _obj(ref.get("target"), "Git reference target")
     oid = _text(target.get("oid"), "Git reference target oid")
     if not FULL_SHA_RE.fullmatch(oid):
         raise BotError("malformed Git reference target oid")
-    return {"name": ref["name"], "oid": oid, "target": target}
+    return {
+        "name": ref["name"],
+        "prefix": ref["prefix"],
+        "oid": oid,
+        "target": target,
+    }
 
 
 def _master_sha(api: Any) -> str:
@@ -866,7 +872,7 @@ def _verify_source_commit(
 CREATE_REF_MUTATION = """
 mutation($input: CreateRefInput!) {
   createRef(input: $input) {
-    ref { name target { oid } }
+    ref { name prefix target { oid } }
   }
 }
 """
@@ -908,7 +914,11 @@ def _create_source_ref(
         raise IndeterminateMutation(
             "created source ref response is incomplete; inspect native GitHub state"
         ) from None
-    if ref.get("name") != f"refs/heads/{branch}" or target.get("oid") != base:
+    if (
+        ref.get("name") != branch
+        or ref.get("prefix") != "refs/heads/"
+        or target.get("oid") != base
+    ):
         raise IndeterminateMutation(
             "created source ref could not be verified; inspect native GitHub state"
         )
@@ -917,10 +927,7 @@ def _create_source_ref(
 def _create_source_commit(
     api: Any, branch: str, base: str, lock: bytes, digest: str
 ) -> str:
-    try:
-        contents = lock.decode("utf-8")
-    except UnicodeDecodeError:
-        raise BotError("verified source lock is not UTF-8") from None
+    contents = base64.b64encode(lock).decode("ascii")
     data = _graphql(
         api,
         CREATE_COMMIT_MUTATION,
@@ -1443,9 +1450,9 @@ def _check_signature(row: dict[str, Any]) -> tuple[Any, ...]:
 def _status_signature(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
         row.get("id"),
+        row.get("url"),
         row.get("context"),
         row.get("state"),
-        row.get("sha"),
         row.get("created_at"),
         row.get("updated_at"),
     )
@@ -1478,9 +1485,13 @@ def _check_status_snapshot(api: Any, head: str) -> tuple[Any, ...]:
             raise NotReady("check_run_pending")
         if check.get("conclusion") not in {"success", "skipped", "neutral"}:
             raise NotReady("check_run_failed_or_unknown", failed=True)
+    latest_status_by_context: dict[str, dict[str, Any]] = {}
     for status in statuses:
-        if status.get("sha") != head:
-            raise BotError("commit status does not match the exact source PR head")
+        context = _text(status.get("context"), "commit status context")
+        context_key = context.casefold()
+        if context_key not in latest_status_by_context:
+            latest_status_by_context[context_key] = status
+    for status in latest_status_by_context.values():
         if status.get("state") != "success":
             raise NotReady(
                 "commit_status_pending_or_failed",
