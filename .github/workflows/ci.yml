@@ -20,9 +20,12 @@ jobs:
     name: Build and validate public package
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      release_required: ${{ steps.release-inputs.outputs.release_required }}
     steps:
       - uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -30,6 +33,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
+      - name: Check whether distribution inputs changed
+        id: release-inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -B scripts/release_inputs.py >> "$GITHUB_OUTPUT"
       - name: Test aggregation and publication behavior
         run: python -B -m unittest discover -s tests -v
       - name: Verify native source CI at each exact revision
@@ -158,8 +166,8 @@ jobs:
 
   publish:
     name: Publish immutable distribution
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.build.outputs.release_required == 'true'
+    needs: [build, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -176,6 +184,29 @@ jobs:
           name: public-distribution-${{ github.sha }}
           path: dist
       - name: Publish the validated package
+        id: publication
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python -B scripts/publish_distribution.py --dist dist --sha "$GITHUB_SHA"
+      - name: Create a private Actions notification token
+        if: steps.publication.outputs.status == 'published' && vars.PRIVATE_OVERLAY_DISTRIBUTION_READY == 'true' && vars.DISTRIBUTION_NOTIFY_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        id: private-token
+        with:
+          app-id: ${{ vars.DISTRIBUTION_NOTIFY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DISTRIBUTION_NOTIFY_APP_PRIVATE_KEY }}
+          owner: Joey-Tools
+          repositories: codex-private-workflows
+          permission-actions: write
+      - name: Wake private adoption of the latest immutable distribution
+        if: steps.private-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.private-token.outputs.token }}
+          GH_HOST: github.com
+          GH_PROMPT_DISABLED: '1'
+        run: >-
+          gh workflow run scheduled-sync-release.yml
+          --repo Joey-Tools/codex-private-workflows --ref master -f force=true
+      - name: Report a disabled private notification
+        if: steps.publication.outputs.status == 'published' && (vars.PRIVATE_OVERLAY_DISTRIBUTION_READY != 'true' || vars.DISTRIBUTION_NOTIFY_APP_CLIENT_ID == '')
+        run: echo 'Private notification is disabled; retain scheduled/manual private recovery.' >> "$GITHUB_STEP_SUMMARY"
