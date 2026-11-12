@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "repository": "Joey-Tools/codex-public-distribution",
+  "builder": {
+    "source": "codex-toolbox",
+    "path": "scripts/build_personal_codex_package.py"
+  },
+  "exports": [
+    {
+      "source": "codex-toolbox",
+      "path": "personal_codex/bin/codex-clean-tmp",
+      "destination": "personal_codex/bin/codex-clean-tmp",
+      "target": "bin/codex-clean-tmp",
+      "kind": "file"
+    },
+    {
+      "source": "codex-toolbox",
+      "path": "personal_codex/bin/codex-squash-merge-wip",
+      "destination": "personal_codex/bin/codex-squash-merge-wip",
+      "target": "bin/codex-squash-merge-wip",
+      "kind": "file"
+    },
+    {
+      "source": "codex-toolbox",
+      "path": "personal_codex/bin/codex-wip-branch",
+      "destination": "personal_codex/bin/codex-wip-branch",
+      "target": "bin/codex-wip-branch",
+      "kind": "file"
+    },
+    {
+      "source": "codex-toolbox",
+      "path": "scripts/codex_personal_sync.py",
+      "destination": "scripts/codex_personal_sync.py",
+      "target": "bin/codex-personal-sync",
+      "kind": "file"
+    },
+    {
+      "source": "codex-toolbox",
+      "path": "personal_codex/skills/grilling",
+      "destination": "personal_codex/skills/grilling",
+      "target": "skills/grilling",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-toolbox",
+      "path": "personal_codex/skills/submodule-linked-worktrees",
+      "destination": "personal_codex/skills/submodule-linked-worktrees",
+      "target": "skills/submodule-linked-worktrees",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-review-workflows",
+      "path": "skills/agile-delivery-workflow",
+      "destination": "personal_codex/skills/agile-delivery-workflow",
+      "target": "skills/agile-delivery-workflow",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-review-workflows",
+      "path": "skills/change-delivery-workflow",
+      "destination": "personal_codex/skills/change-delivery-workflow",
+      "target": "skills/change-delivery-workflow",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-review-workflows",
+      "path": "skills/review-orchestration-playbook",
+      "destination": "personal_codex/skills/review-orchestration-playbook",
+      "target": "skills/review-orchestration-playbook",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-review-workflows",
+      "path": "skills/synthetic-token-fixtures",
+      "destination": "personal_codex/skills/synthetic-token-fixtures",
+      "target": "skills/synthetic-token-fixtures",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-debug-triage",
+      "path": "skills/bug-triage-playbook",
+      "destination": "personal_codex/skills/bug-triage-playbook",
+      "target": "skills/bug-triage-playbook",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-workflow-hygiene",
+      "path": "skills/bounded-command-output",
+      "destination": "personal_codex/skills/bounded-command-output",
+      "target": "skills/bounded-command-output",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-workflow-hygiene",
+      "path": "skills/codex-session-mining",
+      "destination": "personal_codex/skills/codex-session-mining",
+      "target": "skills/codex-session-mining",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-workflow-hygiene",
+      "path": "skills/codex-skill-authoring",
+      "destination": "personal_codex/skills/codex-skill-authoring",
+      "target": "skills/codex-skill-authoring",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-project-journal",
+      "path": ".",
+      "destination": "personal_codex/skills/project-journal",
+      "target": "skills/project-journal",
+      "kind": "skill",
+      "exclude": [
+        ".github/**"
+      ]
+    },
+    {
+      "source": "archify",
+      "path": "archify",
+      "destination": "personal_codex/skills/archify",
+      "target": "skills/archify",
+      "kind": "skill",
+      "exclude": [
+        "test/**",
+        "package-lock.json",
+        "scripts/generate-brand-marks.mjs",
+        "scripts/generate-validators.mjs"
+      ],
+      "transform": "archify-standalone-v1"
+    }
+  ]
+}
