@@ -19,12 +19,12 @@
       "repository": "Joey-Tools/archify",
       "repository_id": 1361913432,
       "ref": "joey-custom",
-      "sha": "52d64928314032ed840485ced531fce54bdfbb1e",
-      "tree": "9b7f7bf81b5ce7b660656cc1f9b489ab4eb13a61",
+      "sha": "5308dafaa7ab2f886834b973c951fd7560c64545",
+      "tree": "45d9fb31fe284941438ce204c77a592a2d9c2227",
       "workflow": {
         "id": 353557026,
         "path": ".github/workflows/ci.yml",
-        "blob": "e15448f50228cf00fa79fdeef2526e211403fa09"
+        "blob": "af3308a4a10165c8a5df3fcb16b3109c4a4ab2d3"
       }
     },
     {
