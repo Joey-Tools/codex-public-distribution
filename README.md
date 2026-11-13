@@ -137,6 +137,12 @@ verify its default-branch Release. Only afterward set the public Actions variabl
 `Update public sources` with `notify_private=true` and observe the matching private
 workflow; that mode does not refresh sources or publish a release.
 
+API failures retain bounded structured server diagnostics and identify the ref or
+commit mutation stage. An uncertain mutation is never replayed in the same run;
+inspect the deterministic branch and PR before a diagnostic retry. Closing an API
+process's output stream does not by itself mean that the request timed out: the
+writer waits for process exit within the original request deadline.
+
 Keep private's scheduled and manual recovery until a natural publication proves
 delivery and missed-event recovery. Public scheduled workflows can be disabled
 after [60 days without repository activity](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows).

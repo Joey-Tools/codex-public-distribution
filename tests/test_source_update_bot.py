@@ -6,7 +6,9 @@ import base64
 import hashlib
 import json
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -523,6 +525,62 @@ class SourceUpdateBotTests(unittest.TestCase):
         ):
             with self.subTest(path=path), self.assertRaises(bot.APIError):
                 client._endpoint(path, None)
+
+    def test_core_api_waits_for_exit_after_stdout_closes(self) -> None:
+        client = object.__new__(bot.GitHubAPI)
+        client._token = "selected"
+        client._started = time.monotonic()
+        client.request_timeout = 1.0
+        output = client._run_bounded(
+            [sys.executable, "-c", "import os,time; os.close(1); time.sleep(0.05)"],
+            None,
+        )
+        self.assertEqual(output, b"")
+
+    def test_core_api_still_times_out_after_stdout_closes(self) -> None:
+        client = object.__new__(bot.GitHubAPI)
+        client._token = "selected"
+        client._started = time.monotonic()
+        client.request_timeout = 0.1
+        with self.assertRaisesRegex(bot.APIError, "exceeded its time limit"):
+            client._run_bounded(
+                [sys.executable, "-c", "import os,time; os.close(1); time.sleep(5)"],
+                None,
+            )
+
+    def test_core_api_reports_structured_failure_without_token_or_stderr(self) -> None:
+        client = object.__new__(bot.GitHubAPI)
+        client._token = "selected"
+        client._started = time.monotonic()
+        with self.assertRaises(bot.APIError) as caught:
+            client._run_bounded(
+                [
+                    sys.executable,
+                    "-c",
+                    'import sys; print(\'{"errors":[{"type":"FORBIDDEN",'
+                    '"message":"selected denied","path":["createCommitOnBranch"]}]}\');'
+                    ' print("private transport stderr", file=sys.stderr); sys.exit(1)',
+                ],
+                None,
+            )
+        self.assertIn("FORBIDDEN", str(caught.exception))
+        self.assertIn("createCommitOnBranch", str(caught.exception))
+        self.assertNotIn("selected", str(caught.exception))
+        self.assertNotIn("private transport stderr", str(caught.exception))
+
+    def test_mutation_transport_failure_names_stage_and_remains_indeterminate(
+        self,
+    ) -> None:
+        with patch.object(
+            self.api, "graphql", side_effect=bot.APIError("server denied")
+        ) as request:
+            with self.assertRaisesRegex(
+                bot.IndeterminateMutation, "createCommitOnBranch.*server denied"
+            ):
+                bot._create_source_commit(
+                    self.api, BRANCH, BASE_SHA, LOCK_BYTES, LOCK_DIGEST
+                )
+        self.assertEqual(request.call_count, 1)
 
     def test_core_api_environment_uses_only_explicit_token_without_config_pool(
         self,
