@@ -226,14 +226,15 @@ class GitHubAPI:
                     process.kill()
                     process.wait()
                     raise APIError("GitHub API request exceeded its time limit")
+                if not selector.get_map():
+                    process.wait(timeout=remaining)
+                    break
                 events = selector.select(remaining)
                 if not events:
                     if time.monotonic() >= deadline and process.poll() is None:
                         process.kill()
                         process.wait()
                         raise APIError("GitHub API request exceeded its time limit")
-                    if not selector.get_map() and process.poll() is None:
-                        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
                     continue
                 for key, mask in events:
                     if key.data == "stdout" and mask & selectors.EVENT_READ:
@@ -271,7 +272,8 @@ class GitHubAPI:
                     break
             return_code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
             if return_code != 0:
-                raise APIError("core gh api returned a nonzero exit status")
+                detail = self._error_detail(bytes(output))
+                raise APIError(f"core gh api returned a nonzero exit status: {detail}")
             return bytes(output)
         except subprocess.TimeoutExpired:
             process.kill()
@@ -286,6 +288,38 @@ class GitHubAPI:
                 process.stdout.close()
             if process.stdin is not None and not process.stdin.closed:
                 process.stdin.close()
+
+    def _error_detail(self, output: bytes) -> str:
+        """Retain bounded server diagnostics, never raw output or transport stderr."""
+        try:
+            response = json.loads(output)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return "no structured server error"
+        if not isinstance(response, dict):
+            return "no structured server error"
+        errors = response.get("errors", [{"message": response.get("message")}])
+        if not isinstance(errors, list):
+            return "no structured server error"
+        details = []
+        for error in errors[:3]:
+            if not isinstance(error, dict):
+                continue
+            fields = {}
+            for key in ("type", "message", "path"):
+                value = error.get(key)
+                if value is None:
+                    continue
+                text = json.dumps(value, ensure_ascii=True)
+                if self._token:
+                    text = text.replace(self._token, "[redacted]")
+                fields[key] = text[:300]
+            if fields:
+                details.append(fields)
+        return (
+            json.dumps(details, ensure_ascii=True)
+            if details
+            else "no structured server error"
+        )
 
     def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return self._request("GET", path, params=params)
@@ -310,11 +344,12 @@ class GitHubAPI:
                 ) from error
             raise error
         if response.get("errors"):
+            detail = self._error_detail(json.dumps(response).encode())
             if mutation:
                 raise IndeterminateMutation(
-                    "GraphQL mutation outcome is unknown; inspect native GitHub state"
+                    f"GraphQL mutation outcome is unknown; inspect native GitHub state: {detail}"
                 )
-            raise APIError("GitHub GraphQL query failed")
+            raise APIError(f"GitHub GraphQL query failed: {detail}")
         return response
 
 
@@ -346,16 +381,22 @@ def _api_get(api: Any, path: str, params: dict[str, Any] | None = None) -> Any:
 
 
 def _graphql(
-    api: Any, query: str, variables: dict[str, Any], *, mutation: bool = False
+    api: Any,
+    query: str,
+    variables: dict[str, Any],
+    *,
+    mutation: bool = False,
+    operation: str = "query",
 ) -> dict[str, Any]:
     try:
         response = api.graphql(query, variables, mutation=mutation)
-    except IndeterminateMutation:
-        raise
+    except IndeterminateMutation as exc:
+        raise IndeterminateMutation(f"{operation}: {exc}") from None
     except Exception as exc:
         if mutation:
+            detail = str(exc) if isinstance(exc, BotError) else type(exc).__name__
             raise IndeterminateMutation(
-                "GraphQL mutation outcome is unknown; inspect native GitHub state"
+                f"{operation}: GraphQL mutation outcome is unknown; inspect native GitHub state: {detail}"
             ) from None
         if isinstance(exc, BotError):
             raise
@@ -905,6 +946,7 @@ def _create_source_ref(
             }
         },
         mutation=True,
+        operation="createRef",
     )
     try:
         result = _obj(data.get("createRef"), "createRef result")
@@ -948,6 +990,7 @@ def _create_source_commit(
             }
         },
         mutation=True,
+        operation="createCommitOnBranch",
     )
     try:
         result = _obj(data.get("createCommitOnBranch"), "createCommitOnBranch result")
