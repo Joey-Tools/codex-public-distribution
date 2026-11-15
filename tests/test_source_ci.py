@@ -79,6 +79,8 @@ class FakeGitHub:
         self.job_list_calls = 0
         self.attempt_calls = 0
         self.attempt_updated_at: list[str] | None = None
+        self.attempt_created_at: list[str] | None = None
+        self.attempt_changes: dict[str, Any] = {}
         self.run_list_mutation: list[dict[str, Any]] | None = None
 
     def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -120,6 +122,10 @@ class FakeGitHub:
             if self.attempt_updated_at is not None:
                 index = min(self.attempt_calls - 1, len(self.attempt_updated_at) - 1)
                 response["updated_at"] = self.attempt_updated_at[index]
+            if self.attempt_created_at is not None:
+                index = min(self.attempt_calls - 1, len(self.attempt_created_at) - 1)
+                response["created_at"] = self.attempt_created_at[index]
+            response.update(self.attempt_changes)
             return response
         raise AssertionError(f"unexpected API path: {path}")
 
@@ -199,6 +205,35 @@ class SourceCiTests(unittest.TestCase):
     def test_attempt_updated_at_may_differ_from_run_list_timestamp(self) -> None:
         self.api.attempt_updated_at = ["2026-11-12T10:10:01Z", "2026-11-12T10:10:01Z"]
         self.assertTrue(self.check()["passed"])
+
+    def test_attempt_creation_clock_may_differ_from_run_list(self) -> None:
+        self.api.attempt_created_at = ["2026-11-12T10:00:01Z"] * 2
+        self.api.attempt_updated_at = ["2026-11-12T10:10:01Z"] * 2
+        self.assertTrue(self.check()["passed"])
+
+    def test_attempt_creation_clock_change_between_reads_invalidates_proof(self) -> None:
+        self.api.attempt_created_at = ["2026-11-12T10:00:01Z", "2026-11-12T10:00:02Z"]
+        result = self.check()
+        self.assertFalse(result["passed"])
+        self.assertIn("attempt changed during verification", result["sources"][0]["reason"])
+
+    def test_cross_endpoint_identity_and_status_changes_still_fail(self) -> None:
+        for field, value in (
+            ("id", RUN_ID + 1), ("workflow_id", WORKFLOW_ID + 1),
+            ("head_sha", "d" * 40), ("head_branch", "other"),
+            ("event", "pull_request"), ("status", "in_progress"),
+            ("conclusion", "failure"), ("run_attempt", 2),
+        ):
+            with self.subTest(field=field):
+                self.api = FakeGitHub()
+                self.api.attempt_changes = {field: value}
+                result = self.check()
+                self.assertFalse(result["passed"])
+                self.assertIn("identity changed or mismatched", result["sources"][0]["reason"])
+
+    def test_cross_endpoint_clocks_must_still_be_valid(self) -> None:
+        self.api.attempt_created_at = ["invalid"] * 2
+        self.assertFalse(self.check()["passed"])
 
     def test_attempt_updated_at_change_between_attempt_reads_invalidates_proof(
         self,

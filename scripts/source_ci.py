@@ -226,9 +226,10 @@ def _run_signature(run: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _run_identity_status_signature(run: dict[str, Any]) -> tuple[Any, ...]:
-    """Compare run identity/state across endpoints with independent update clocks."""
+    """Compare identity/state across independent creation and update clocks."""
     signature = _run_signature(run)
-    return signature[:-1]
+    # Full signatures still protect each endpoint's repeated observations.
+    return signature[:-2]
 
 
 def _matches(run: dict[str, Any], source: dict[str, Any]) -> bool:

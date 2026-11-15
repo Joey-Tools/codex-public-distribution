@@ -25,6 +25,12 @@ every locked SHA and default branch to pass. A matching failure, missing run,
 unknown job, pending rerun, or unavailable API blocks composition. The audit
 JSON records the API observation; it is not an alternative test credential.
 
+Run-list and attempt endpoints can report different `created_at` and
+`updated_at` values for the same native attempt. Cross-endpoint comparison binds
+the run ID, workflow, commit, branch, event, attempt, status, and conclusion.
+Both clocks remain validated and must stay stable on repeated reads of each
+individual endpoint, alongside the complete job and source checks.
+
 Distribution CI tests aggregation and publication logic, reads committed Git
 blobs, verifies source trees, and builds one deterministic archive. Linux and
 macOS install it and upgrade from the existing Toolbox public package in
