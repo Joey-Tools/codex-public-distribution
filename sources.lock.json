@@ -32,8 +32,8 @@
       "repository": "Joey-Tools/codex-review-workflows",
       "repository_id": 1242511842,
       "ref": "master",
-      "sha": "32feae4717c580580b86512168b7a3054d84a85c",
-      "tree": "8b9c4a97942afd7aba62cf5c8463533370cff79c",
+      "sha": "9acdc35d50b6c37bd9499f3631d853b57f85c7aa",
+      "tree": "68134bbbe41315f11a66c315ba75f120ec3979c9",
       "workflow": {
         "id": 278891931,
         "path": ".github/workflows/ci.yml",
@@ -45,8 +45,8 @@
       "repository": "Joey-Tools/codex-workflow-hygiene",
       "repository_id": 1242512084,
       "ref": "master",
-      "sha": "f0b05384452c469709f39f5bb6f12d3f10a1ca70",
-      "tree": "b5069b0ee7181608fc97d05b90a0d375d2eb8522",
+      "sha": "67d6769d029f5cf28f4297df17a6dd12615d00c0",
+      "tree": "af20ab9af118ce0cbea922d02c48aa54a90ba8cd",
       "workflow": {
         "id": 278892036,
         "path": ".github/workflows/ci.yml",
