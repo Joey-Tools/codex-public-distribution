@@ -6,8 +6,8 @@
       "repository": "Joey-Tools/codex-toolbox",
       "repository_id": 1242511840,
       "ref": "master",
-      "sha": "7238fcb9cea0cdd1383df471ca1c65cfba45fed2",
-      "tree": "2a7da0b303cbf6bc10199d0781a07b7910dd3b4f",
+      "sha": "ae8236b62a9c6e384303354ddb44af6499cf6b87",
+      "tree": "62e5e8883170cc1da539ec1049535c878e3374f7",
       "workflow": {
         "id": 278865655,
         "path": ".github/workflows/ci.yml",
