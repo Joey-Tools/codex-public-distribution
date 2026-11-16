@@ -71,6 +71,20 @@
     },
     {
       "source": "codex-review-workflows",
+      "path": "skills/code-review",
+      "destination": "personal_codex/skills/code-review",
+      "target": "skills/code-review",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-review-workflows",
+      "path": "skills/review-response",
+      "destination": "personal_codex/skills/review-response",
+      "target": "skills/review-response",
+      "kind": "skill"
+    },
+    {
+      "source": "codex-review-workflows",
       "path": "skills/synthetic-token-fixtures",
       "destination": "personal_codex/skills/synthetic-token-fixtures",
       "target": "skills/synthetic-token-fixtures",
