@@ -260,7 +260,7 @@ def main() -> int:
             home,
             target_root,
             args.sha,
-            expected_link_count=16,
+            expected_link_count=18,
         )
         if preserved.read_text(encoding="utf-8") != "user-owned\n":
             raise RuntimeError(
