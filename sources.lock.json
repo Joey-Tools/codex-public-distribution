@@ -45,8 +45,8 @@
       "repository": "Joey-Tools/codex-workflow-hygiene",
       "repository_id": 1242512084,
       "ref": "master",
-      "sha": "67d6769d029f5cf28f4297df17a6dd12615d00c0",
-      "tree": "af20ab9af118ce0cbea922d02c48aa54a90ba8cd",
+      "sha": "87f9630f8248a5fc148d71e931bf519e4d02789d",
+      "tree": "92203c8d5f84b57be9ed90ea6a1149b990607007",
       "workflow": {
         "id": 278892036,
         "path": ".github/workflows/ci.yml",
